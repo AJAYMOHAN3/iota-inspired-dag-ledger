@@ -82,7 +82,6 @@ class DagService {
     int nonce = DateTime.now().microsecondsSinceEpoch;
     String txId;
 
-    // Ensure txId uniqueness
     do {
       txId = _calculateHash(data, timestamp, parents, nonce++);
     } while (_dag.containsKey(txId));
@@ -96,7 +95,6 @@ class DagService {
 
     _dag[txId] = newNode;
 
-    // Link parents → child
     for (final pId in parents) {
       _dag[pId] = _dag[pId]!.copyWithChild(txId);
     }
@@ -130,14 +128,27 @@ class DagService {
     return node.txId == expectedId;
   }
 
-  // Nonce recovery is symbolic here; integrity relies on immutability
   int _extractNonce(String txId, DagNode node) => 0;
+
+  /* ===================== ADDED FEATURE ===================== */
+  /* IOTA-like validation: node is valid ONLY if all parents exist */
+  bool _parentsExist(DagNode node) {
+    for (final p in node.parents) {
+      if (!_dag.containsKey(p)) return false;
+    }
+    return true;
+  }
 
   DagNode? findNode(String id) {
     final node = _dag[id];
     if (node == null) return null;
+
+    // ❗ NEW: reject orphan nodes (missing parents)
+    if (!_parentsExist(node)) return null;
+
     return node;
   }
+  /* ===================== END FEATURE ===================== */
 
   List<DagNode> getAllNodesSorted() {
     final nodes = _dag.values.toList();
@@ -207,11 +218,12 @@ class _DagHomePageState extends State<DagHomePage> {
             const SizedBox(height: 8),
             ElevatedButton(
               onPressed: () {
-                final node =
-                dagService.findNode(searchCtrl.text.trim());
+                final node = dagService.findNode(searchCtrl.text.trim());
                 if (node == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("txId not found")),
+                    const SnackBar(
+                      content: Text("txId not found or invalid (missing parent)"),
+                    ),
                   );
                   return;
                 }
